@@ -98,19 +98,19 @@ function renderContent(block: OutputBlockType): ReactNode {
   if (block.procedure === "linear_regression") {
     return (
       <div className="space-y-4">
-        {content.model_summary && (
+        {Boolean(content.model_summary) && (
           <div>
             <h4 className="text-xs font-semibold mb-1">Model Summary</h4>
             <GenericTable data={[content.model_summary as Record<string, unknown>]} />
           </div>
         )}
-        {content.anova && (
+        {Boolean(content.anova) && (
           <div>
             <h4 className="text-xs font-semibold mb-1">ANOVA</h4>
             <GenericTable data={content.anova as Record<string, unknown>[]} />
           </div>
         )}
-        {content.coefficients && (
+        {Boolean(content.coefficients) && (
           <div>
             <h4 className="text-xs font-semibold mb-1">Coefficients</h4>
             <GenericTable data={content.coefficients as Record<string, unknown>[]} />
@@ -124,13 +124,13 @@ function renderContent(block: OutputBlockType): ReactNode {
   if (block.procedure?.includes("ttest")) {
     return (
       <div className="space-y-4">
-        {content.group_stats && (
+        {Boolean(content.group_stats) && (
           <div>
             <h4 className="text-xs font-semibold mb-1">Group Statistics</h4>
             <GenericTable data={content.group_stats as Record<string, unknown>[]} />
           </div>
         )}
-        {content.test_results && (
+        {Boolean(content.test_results) && (
           <div>
             <h4 className="text-xs font-semibold mb-1">Independent Samples Test</h4>
             <GenericTable data={content.test_results as Record<string, unknown>[]} />
@@ -148,13 +148,13 @@ function renderContent(block: OutputBlockType): ReactNode {
   if (block.procedure === "reliability") {
     return (
       <div className="space-y-4">
-        {content.scale_stats && (
+        {Boolean(content.scale_stats) && (
           <div>
             <h4 className="text-xs font-semibold mb-1">Scale Statistics</h4>
             <GenericTable data={[content.scale_stats as Record<string, unknown>]} />
           </div>
         )}
-        {content.item_stats && (
+        {Boolean(content.item_stats) && (
           <div>
             <h4 className="text-xs font-semibold mb-1">Item-Total Statistics</h4>
             <GenericTable data={content.item_stats as Record<string, unknown>[]} />
