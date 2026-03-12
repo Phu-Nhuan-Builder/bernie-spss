@@ -67,7 +67,7 @@ def independent_ttest(
             raise ValueError(f"Group {g} has fewer than 2 observations")
         group_data.append(arr)
         group_stats.append({
-            "group": g,
+            "group": g.item() if hasattr(g, 'item') else g,
             "n": int(len(arr)),
             "mean": round(float(np.mean(arr)), 4),
             "std": round(float(np.std(arr, ddof=1)), 4),
@@ -256,6 +256,8 @@ def one_way_anova(
     """
     groups_df = df[[group_var, dep_var]].dropna()
     group_labels = sorted(groups_df[group_var].unique())
+    # Convert numpy types to native Python for JSON serialization
+    group_labels = [x.item() if hasattr(x, 'item') else x for x in group_labels]
     groups_data = [groups_df.loc[groups_df[group_var] == g, dep_var].to_numpy(dtype=float) for g in group_labels]
 
     if any(len(g) < 2 for g in groups_data):
@@ -283,7 +285,7 @@ def one_way_anova(
     group_stats = []
     for lbl, arr in zip(group_labels, groups_data):
         group_stats.append({
-            "group": lbl,
+            "group": lbl.item() if hasattr(lbl, 'item') else lbl,
             "n": int(len(arr)),
             "mean": round(float(np.mean(arr)), 4),
             "std": round(float(np.std(arr, ddof=1)), 4),
@@ -301,7 +303,8 @@ def one_way_anova(
             posthoc_results = []
             for row in tukey.summary().data[1:]:
                 posthoc_results.append({
-                    "group_1": row[0], "group_2": row[1],
+                    "group_1": row[0].item() if hasattr(row[0], 'item') else row[0],
+                    "group_2": row[1].item() if hasattr(row[1], 'item') else row[1],
                     "mean_diff": round(float(row[2]), 4),
                     "p_value": round(float(row[3]), 4),
                     "ci_lower": round(float(row[4]), 4),

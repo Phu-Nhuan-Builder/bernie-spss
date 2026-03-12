@@ -187,8 +187,9 @@ def ols_regression(
     # VIF
     vif_values = []
     try:
+        X_const_arr = np.asarray(X_const, dtype=float)
         for i in range(X.shape[1]):
-            vif_values.append(round(float(variance_inflation_factor(X_const.values, i + 1)), 4))
+            vif_values.append(round(float(variance_inflation_factor(X_const_arr, i + 1)), 4))
     except Exception:
         vif_values = [None] * k
 
@@ -200,8 +201,9 @@ def ols_regression(
         se = float(model.bse[idx])
         t = float(model.tvalues[idx])
         p = float(model.pvalues[idx])
-        ci_lower = float(model.conf_int()[0][idx])
-        ci_upper = float(model.conf_int()[1][idx])
+        ci = model.conf_int()
+        ci_lower = float(ci[idx][0])
+        ci_upper = float(ci[idx][1])
         beta = betas[i - 1] if i > 0 else None
         vif = vif_values[i - 1] if i > 0 else None
         tolerance = (1 / vif) if vif and vif > 0 else None

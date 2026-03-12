@@ -48,6 +48,7 @@ export interface DataPage {
   total: number;
   page: number;
   page_size: number;
+  n_vars: number;
 }
 
 export interface OutputBlock {

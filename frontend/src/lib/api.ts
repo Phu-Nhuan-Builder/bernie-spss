@@ -17,14 +17,46 @@ apiClient.interceptors.request.use(
   (error) => Promise.reject(error)
 );
 
-// Response interceptor
+// Response interceptor — handle session expiry and extract error messages
 apiClient.interceptors.response.use(
   (response) => response,
   (error: AxiosError) => {
-    const message =
-      (error.response?.data as Record<string, string>)?.message ||
-      error.message ||
-      "An unexpected error occurred";
+    const status = error.response?.status;
+    const data = error.response?.data as Record<string, unknown> | undefined;
+
+    // Detect session-not-found → clear stale session
+    if (status === 404 && data?.error === "SESSION_NOT_FOUND") {
+      // Dynamically import to avoid circular deps
+      import("@/stores/datasetStore").then(({ useDatasetStore }) => {
+        useDatasetStore.getState().clearSession();
+      });
+      return Promise.reject(
+        new Error("Session expired. The server was restarted. Please re-upload your data file.")
+      );
+    }
+
+    // Extract the most useful error message
+    let message = "An unexpected error occurred";
+    if (data) {
+      if (typeof data.detail === "string") {
+        message = data.detail;
+      } else if (typeof data.detail === "object" && data.detail !== null) {
+        const detail = data.detail as Record<string, string>;
+        message = detail.message || detail.msg || JSON.stringify(data.detail);
+      } else if (typeof data.message === "string") {
+        message = data.message;
+      }
+    } else if (error.message) {
+      message = error.message;
+    }
+
+    // Add status context for common errors
+    if (status === 503) {
+      message = "Server is temporarily unavailable (cold start). Please try again in a few seconds.";
+    } else if (status === 422 && !data?.detail) {
+      message = "Invalid request. Please check your input parameters.";
+    }
+
     return Promise.reject(new Error(message));
   }
 );

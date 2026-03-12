@@ -6,6 +6,13 @@ import { formatNumber, significanceStars } from "@/lib/utils";
 import type { OutputBlock as OutputBlockType } from "@/types/dataset";
 import { X, ChevronDown, ChevronUp } from "lucide-react";
 
+// Chart components (dynamically imported via next/dynamic inside each)
+import { BoxPlot } from "@/components/Charts/BoxPlot";
+import { Histogram } from "@/components/Charts/Histogram";
+import { QQPlot } from "@/components/Charts/QQPlot";
+import { ScatterPlot } from "@/components/Charts/ScatterPlot";
+import { ScreePlot } from "@/components/Charts/ScreePlot";
+
 interface Props {
   block: OutputBlockType;
 }
@@ -74,7 +81,25 @@ function StatRow({ label, value }: { label: string; value: unknown }) {
 
 function renderFrequencies(c: Record<string, unknown>): ReactNode {
   const headers = c.headers as string[];
-  const rows = c.rows as unknown[][];
+  // Support both array-of-arrays (new format) and array-of-dicts (legacy)
+  let rows = c.rows as unknown[][];
+  if (rows && rows.length > 0 && typeof rows[0] === "object" && !Array.isArray(rows[0])) {
+    // Convert dict rows to array rows
+    const dictRows = rows as unknown as Record<string, unknown>[];
+    rows = dictRows.map(r => [r.value, r.label, r.count, r.percent, r.valid_percent, r.cumulative_percent]);
+  }
+  // Extract numeric values for histogram from row_details or rows
+  const rowDetails = c.row_details as Record<string, unknown>[] | undefined;
+  const numericValues: number[] = [];
+  if (rowDetails) {
+    for (const r of rowDetails) {
+      const val = r.value;
+      const count = r.count as number;
+      if (typeof val === "number" && count > 0) {
+        for (let i = 0; i < count; i++) numericValues.push(val);
+      }
+    }
+  }
   return (
     <div>
       <div className="flex gap-4 text-xs text-gray-600 mb-2">
@@ -85,6 +110,11 @@ function renderFrequencies(c: Record<string, unknown>): ReactNode {
         )}
       </div>
       <PivotTable headers={headers} rows={rows} />
+      {numericValues.length > 0 && (
+        <div className="mt-3">
+          <Histogram data={numericValues} title={`Frequency — ${rv(c.variable)}`} />
+        </div>
+      )}
     </div>
   );
 }
@@ -165,6 +195,21 @@ function renderExplore(c: Record<string, unknown>): ReactNode {
                 <StatRow key={k} label={k.replace("_", " ").replace(/\b\w/g, (c) => c.toUpperCase())} value={boxplotStats[k]} />
               ) : null
             )}
+          </div>
+          {/* Render Box Plot chart */}
+          <div className="mt-3">
+            <BoxPlot
+              data={{
+                q1: boxplotStats.q1 as number,
+                median: boxplotStats.median as number,
+                q3: boxplotStats.q3 as number,
+                whisker_low: boxplotStats.whisker_low as number,
+                whisker_high: boxplotStats.whisker_high as number,
+                mild_outliers: (boxplotStats.mild_outliers as number[]) || [],
+                extreme_outliers: (boxplotStats.extreme_outliers as number[]) || [],
+              }}
+              title={`Box Plot — ${rv(c.variable)}`}
+            />
           </div>
         </>
       )}
@@ -472,6 +517,7 @@ function renderCorrelation(c: Record<string, unknown>): ReactNode {
 function renderLinearRegression(c: Record<string, unknown>): ReactNode {
   const anovaTable = c.anova_table as { headers: string[]; rows: unknown[][] } | null;
   const coefficients = c.coefficients as Record<string, unknown>[] | null;
+  const residualsData = c.residuals_data as Record<string, unknown> | null;
   return (
     <div className="space-y-3">
       <SectionTitle>Model Summary</SectionTitle>
@@ -528,6 +574,19 @@ function renderLinearRegression(c: Record<string, unknown>): ReactNode {
               ))}
             </tbody>
           </table>
+        </>
+      )}
+
+      {/* Residual Scatter Plot */}
+      {residualsData && (
+        <>
+          <SectionTitle>Standardized Residuals vs. Predicted</SectionTitle>
+          <ScatterPlot
+            x={(residualsData.leverage as number[]) || []}
+            y={(residualsData.standardized_residuals as number[]) || []}
+            xLabel="Leverage"
+            yLabel="Standardized Residuals"
+          />
         </>
       )}
     </div>
@@ -658,6 +717,13 @@ function renderEFA(c: Record<string, unknown>): ReactNode {
           ))}
         </tbody>
       </table>
+
+      {/* Scree Plot chart */}
+      {eigenvalues && eigenvalues.length > 0 && (
+        <div className="mt-3">
+          <ScreePlot eigenvalues={eigenvalues} />
+        </div>
+      )}
 
       {headers && rows && (
         <>

@@ -12,8 +12,8 @@ class OutputBlockData(BaseModel):
 
 
 class ExportRequest(BaseModel):
-    session_id: str
-    format: str  # "pdf" or "excel"
     output_blocks: List[OutputBlockData]
     title: Optional[str] = "Statistical Output"
+    session_id: Optional[str] = None
+    format: Optional[str] = None  # "pdf" or "excel" — inferred from endpoint
     include_footer: bool = True

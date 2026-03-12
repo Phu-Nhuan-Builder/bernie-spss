@@ -25,14 +25,15 @@ def compute_frequencies(df: pd.DataFrame, variable: str, value_labels: Optional[
     value_counts = series.value_counts(dropna=True).sort_index()
     value_labels = value_labels or {}
 
-    rows = []
+    rows_detail = []
+    table_rows = []
     cumul = 0.0
     for val, count in value_counts.items():
         pct = (count / n_total) * 100
         valid_pct = (count / n_valid) * 100 if n_valid > 0 else 0.0
         cumul += valid_pct
         label = value_labels.get(str(val), str(val))
-        rows.append({
+        rows_detail.append({
             "value": val,
             "label": label,
             "count": int(count),
@@ -40,11 +41,12 @@ def compute_frequencies(df: pd.DataFrame, variable: str, value_labels: Optional[
             "valid_percent": round(valid_pct, 1),
             "cumulative_percent": round(cumul, 1),
         })
+        table_rows.append([val, label, int(count), round(pct, 1), round(valid_pct, 1), round(cumul, 1)])
 
     # Add missing row if applicable
     if n_missing > 0:
         missing_pct = (n_missing / n_total) * 100
-        rows.append({
+        rows_detail.append({
             "value": "Missing",
             "label": "System",
             "count": n_missing,
@@ -52,6 +54,7 @@ def compute_frequencies(df: pd.DataFrame, variable: str, value_labels: Optional[
             "valid_percent": 0.0,
             "cumulative_percent": 100.0,
         })
+        table_rows.append(["Missing", "System", n_missing, round(missing_pct, 1), 0.0, 100.0])
 
     # Mode
     mode_result = None
@@ -63,7 +66,8 @@ def compute_frequencies(df: pd.DataFrame, variable: str, value_labels: Optional[
     return {
         "variable": variable,
         "label": value_labels.get("_label", ""),
-        "rows": rows,
+        "rows": table_rows,
+        "row_details": rows_detail,
         "n_valid": n_valid,
         "n_missing": n_missing,
         "n_total": n_total,

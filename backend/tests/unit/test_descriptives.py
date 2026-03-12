@@ -39,11 +39,11 @@ class TestFrequencies:
         assert result["n_total"] == 50
         assert result["n_missing"] == 0
         # Gender has 2 unique values (1 and 2)
-        assert len([r for r in result["rows"] if r["value"] != "Missing"]) == 2
+        assert len([r for r in result["row_details"] if r["value"] != "Missing"]) == 2
 
     def test_percentages_sum_to_100(self, sample_df):
         result = compute_frequencies(sample_df, "gender")
-        total_pct = sum(r["percent"] for r in result["rows"] if r["value"] != "Missing")
+        total_pct = sum(r["percent"] for r in result["row_details"] if r["value"] != "Missing")
         assert abs(total_pct - 100.0) < 0.5  # allow rounding
 
     def test_with_missing_values(self, sample_df):
@@ -56,7 +56,7 @@ class TestFrequencies:
     def test_value_labels_applied(self, sample_df):
         vl = {"1": "Male", "2": "Female"}
         result = compute_frequencies(sample_df, "gender", vl)
-        labels = [r["label"] for r in result["rows"]]
+        labels = [r["label"] for r in result["row_details"]]
         assert "Male" in labels
         assert "Female" in labels
 

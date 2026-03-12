@@ -6,7 +6,7 @@ from typing import List
 class Settings(BaseSettings):
     REDIS_URL: str = "redis://localhost:6379/0"
     MAX_UPLOAD_MB: int = 50
-    ALLOWED_ORIGINS: str = "http://localhost:3000"
+    ALLOWED_ORIGINS: str = "http://localhost:3000,https://spss.phunhuanbuilder.com,https://bernie-spss.vercel.app"
     ENVIRONMENT: str = "development"
     CLOUDFLARE_R2_ACCOUNT_ID: str = ""
     CLOUDFLARE_R2_ACCESS_KEY: str = ""

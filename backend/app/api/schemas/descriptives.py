@@ -21,7 +21,8 @@ class FrequencyRow(BaseModel):
 class FrequencyResponse(BaseModel):
     variable: str
     label: str = ""
-    rows: List[FrequencyRow]
+    rows: List[Any]
+    row_details: List[FrequencyRow] = []
     n_valid: int
     n_missing: int
     n_total: int
@@ -79,6 +80,8 @@ class CrosstabResponse(BaseModel):
     phi: Optional[float] = None
     fisher_exact_p: Optional[float] = None
     n: int
+    headers: List[str] = []
+    rows: List[Any] = []
 
 
 class ExploreRequest(BaseModel):
