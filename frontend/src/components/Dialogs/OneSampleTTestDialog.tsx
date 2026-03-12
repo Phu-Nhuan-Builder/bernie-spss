@@ -18,7 +18,7 @@ export function OneSampleTTestDialog({ open, onClose }: Props) {
     if (!sessionId || !testVar) { toast.error("Select a variable"); return; }
     setLoading(true);
     try {
-      const result = await testsApi.oneSampleTTest({ session_id: sessionId, test_var: testVar, test_value: testValue });
+      const result = await testsApi.oneSampleTTest({ session_id: sessionId, variable: testVar, test_value: testValue });
       addOutputBlock({
         id: crypto.randomUUID(),
         type: "table",

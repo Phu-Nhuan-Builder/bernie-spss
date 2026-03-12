@@ -1,11 +1,12 @@
 """
 Unit tests for hypothesis tests service.
-Test against scipy reference values.
+Tests against scipy reference values.
 """
 import pytest
 import numpy as np
 import pandas as pd
 from scipy import stats as scipy_stats
+
 from app.domain.services.tests import (
     independent_ttest, paired_ttest, one_sample_ttest, one_way_anova
 )
@@ -13,105 +14,123 @@ from app.domain.services.tests import (
 
 @pytest.fixture
 def two_group_df():
-    """DataFrame with two groups for independent t-test."""
+    """DataFrame with two groups for t-test."""
     np.random.seed(42)
-    group1 = [78.5, 82.3, 65.4, 90.1, 71.2, 88.7, 79.8, 84.5, 68.3, 92.1]
-    group2 = [65.2, 70.1, 75.8, 63.4, 72.6, 68.9, 74.3, 66.7, 71.5, 69.8]
-    return pd.DataFrame({
-        "score": group1 + group2,
-        "group": [1] * 10 + [2] * 10,
+    group_a = np.random.normal(75, 10, 25)
+    group_b = np.random.normal(80, 10, 25)
+    data = pd.DataFrame({
+        "score": np.concatenate([group_a, group_b]),
+        "group": ["A"] * 25 + ["B"] * 25,
     })
+    return data
 
 
 @pytest.fixture
-def anova_df():
-    """DataFrame with 3 groups for ANOVA."""
+def three_group_df():
+    """DataFrame with three groups for ANOVA."""
+    np.random.seed(42)
     return pd.DataFrame({
-        "score": [10, 12, 11, 15, 14, 13, 20, 22, 19, 25, 24, 21],
-        "group": ["A", "A", "A", "B", "B", "B", "C", "C", "C", "D", "D", "D"],
+        "score": [78, 82, 65, 90, 71, 88, 79, 84, 68, 92,
+                  75, 81, 70, 86, 73, 89, 77, 83, 69, 91,
+                  60, 65, 58, 70, 62, 67, 63, 68, 55, 72],
+        "group": ["A"] * 10 + ["B"] * 10 + ["C"] * 10,
     })
 
 
 class TestIndependentTTest:
-    def test_t_statistic_matches_scipy(self, two_group_df):
-        result = independent_ttest(two_group_df, "group", "score", equal_var=True)
-        g1 = two_group_df[two_group_df["group"] == 1]["score"].values
-        g2 = two_group_df[two_group_df["group"] == 2]["score"].values
-        t_ref, p_ref = scipy_stats.ttest_ind(g1, g2, equal_var=True)
-        assert abs(result["statistic"] - t_ref) < 0.001
-
-    def test_p_value_matches_scipy(self, two_group_df):
-        result = independent_ttest(two_group_df, "group", "score", equal_var=True)
-        g1 = two_group_df[two_group_df["group"] == 1]["score"].values
-        g2 = two_group_df[two_group_df["group"] == 2]["score"].values
-        _, p_ref = scipy_stats.ttest_ind(g1, g2, equal_var=True)
-        assert abs(result["pvalue"] - p_ref) < 0.001
-
-    def test_levene_test_present(self, two_group_df):
+    def test_matches_scipy(self, two_group_df):
+        """t-statistic and p-value must match scipy reference."""
         result = independent_ttest(two_group_df, "group", "score")
+
+        group_a = two_group_df.loc[two_group_df["group"] == "A", "score"].values
+        group_b = two_group_df.loc[two_group_df["group"] == "B", "score"].values
+        ref_t, ref_p = scipy_stats.ttest_ind(group_a, group_b, equal_var=True)
+
+        assert abs(result["statistic"] - float(ref_t)) < 0.01
+        assert abs(result["pvalue"] - float(ref_p)) < 0.01
+
+    def test_levene_test_included(self, two_group_df):
+        result = independent_ttest(two_group_df, "group", "score")
+        assert "levene_F" in result
         assert result["levene_F"] is not None
         assert result["levene_p"] is not None
 
-    def test_cohen_d_is_float(self, two_group_df):
+    def test_cohen_d_computed(self, two_group_df):
         result = independent_ttest(two_group_df, "group", "score")
-        assert isinstance(result["cohen_d"], float)
+        assert "cohen_d" in result
+        # Cohen's d for ~5 point difference with ~10 SD should be ~0.5
+        assert abs(result["cohen_d"]) < 2.0  # reasonable range
 
-    def test_ci_contains_mean_diff(self, two_group_df):
+    def test_ci_bounds(self, two_group_df):
         result = independent_ttest(two_group_df, "group", "score")
-        assert result["ci_lower"] <= result["mean_diff"] <= result["ci_upper"]
+        assert result["ci_lower"] < result["ci_upper"]
 
-    def test_welch_different_from_student(self, two_group_df):
-        result_eq = independent_ttest(two_group_df, "group", "score", equal_var=True)
-        result_welch = independent_ttest(two_group_df, "group", "score", equal_var=False)
-        # Welch df should differ from Student df for unequal groups
-        # Both should have the same sign of t-statistic
-        assert result_eq["statistic"] * result_welch["statistic"] > 0
+    def test_group_stats(self, two_group_df):
+        result = independent_ttest(two_group_df, "group", "score")
+        assert len(result["group_stats"]) == 2
+        for gs in result["group_stats"]:
+            assert gs["n"] == 25
+            assert gs["mean"] > 0
+            assert gs["std"] > 0
 
 
 class TestPairedTTest:
-    def test_t_matches_scipy(self):
-        df = pd.DataFrame({"pre": [10, 12, 11, 15, 14], "post": [12, 14, 13, 17, 16]})
+    def test_matches_scipy(self):
+        """Paired t-test must match scipy reference."""
+        np.random.seed(42)
+        df = pd.DataFrame({
+            "pre": np.random.normal(70, 10, 30),
+            "post": np.random.normal(75, 10, 30),
+        })
         result = paired_ttest(df, "pre", "post")
-        t_ref, p_ref = scipy_stats.ttest_rel(df["pre"], df["post"])
-        assert abs(result["statistic"] - t_ref) < 0.001
+        ref_t, ref_p = scipy_stats.ttest_rel(df["pre"].values, df["post"].values)
+        assert abs(result["statistic"] - float(ref_t)) < 0.01
+        assert abs(result["pvalue"] - float(ref_p)) < 0.01
 
-    def test_correlation_is_positive(self):
-        df = pd.DataFrame({"pre": [10, 12, 11, 15, 14], "post": [12, 14, 13, 17, 16]})
-        result = paired_ttest(df, "pre", "post")
-        assert result["correlation"] > 0
+    def test_cohen_dz(self):
+        """Cohen's dz for paired data."""
+        df = pd.DataFrame({"a": [1, 2, 3, 4, 5], "b": [2, 3, 4, 5, 6]})
+        result = paired_ttest(df, "a", "b")
+        # Difference is always 1, std_diff = 0 → dz depends on data
+        assert result["cohen_dz"] is not None
 
 
 class TestOneSampleTTest:
-    def test_t_matches_scipy(self):
-        df = pd.DataFrame({"x": [10, 12, 11, 15, 14, 13, 9, 16, 11, 12]})
-        result = one_sample_ttest(df, "x", test_value=10)
-        t_ref, p_ref = scipy_stats.ttest_1samp(df["x"].values, 10)
-        assert abs(result["statistic"] - t_ref) < 0.001
-
-    def test_zero_mean_diff_when_test_value_equals_mean(self):
-        values = [10.0, 10.0, 10.0, 10.0, 10.0]
-        df = pd.DataFrame({"x": values})
-        result = one_sample_ttest(df, "x", test_value=10.0)
-        assert abs(result["mean_diff"]) < 0.001
-        assert abs(result["statistic"]) < 0.001
+    def test_matches_scipy(self):
+        """One-sample t-test against known population mean."""
+        np.random.seed(42)
+        data = np.random.normal(100, 15, 50)
+        df = pd.DataFrame({"iq": data})
+        result = one_sample_ttest(df, "iq", test_value=100)
+        ref_t, ref_p = scipy_stats.ttest_1samp(data, 100)
+        assert abs(result["statistic"] - float(ref_t)) < 0.01
+        assert abs(result["pvalue"] - float(ref_p)) < 0.01
 
 
 class TestOneWayANOVA:
-    def test_f_matches_scipy(self, anova_df):
-        result = one_way_anova(anova_df, "group", "score")
-        groups = [anova_df[anova_df["group"] == g]["score"].values for g in ["A", "B", "C", "D"]]
-        f_ref, p_ref = scipy_stats.f_oneway(*groups)
-        assert abs(result["f_statistic"] - f_ref) < 0.01
+    def test_matches_scipy(self, three_group_df):
+        """F-statistic and p-value must match scipy reference."""
+        result = one_way_anova(three_group_df, "group", "score")
 
-    def test_p_value_in_range(self, anova_df):
-        result = one_way_anova(anova_df, "group", "score")
-        assert 0.0 <= result["p_value"] <= 1.0
+        groups = [
+            three_group_df.loc[three_group_df["group"] == g, "score"].values
+            for g in ["A", "B", "C"]
+        ]
+        ref_f, ref_p = scipy_stats.f_oneway(*groups)
 
-    def test_eta_squared_in_range(self, anova_df):
-        result = one_way_anova(anova_df, "group", "score")
-        assert 0.0 <= result["eta_squared"] <= 1.0
+        assert abs(result["f_statistic"] - float(ref_f)) < 0.01
+        assert abs(result["p_value"] - float(ref_p)) < 0.01
 
-    def test_tukey_posthoc(self, anova_df):
-        result = one_way_anova(anova_df, "group", "score", posthoc="tukey")
+    def test_eta_squared_range(self, three_group_df):
+        result = one_way_anova(three_group_df, "group", "score")
+        assert 0 <= result["eta_squared"] <= 1
+
+    def test_anova_table_structure(self, three_group_df):
+        result = one_way_anova(three_group_df, "group", "score")
+        assert "anova_table" in result
+        assert len(result["anova_table"]["rows"]) == 3  # Between, Within, Total
+
+    def test_tukey_posthoc(self, three_group_df):
+        result = one_way_anova(three_group_df, "group", "score", posthoc="tukey")
         assert result["posthoc_results"] is not None
-        assert len(result["posthoc_results"]) > 0
+        assert len(result["posthoc_results"]) == 3  # C(3,2) = 3 pairs

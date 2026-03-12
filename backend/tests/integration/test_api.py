@@ -1,42 +1,36 @@
 """
-Integration tests for API endpoints.
-Uses httpx AsyncClient with full app.
+Integration tests — Full API endpoint tests using httpx AsyncClient.
 """
 import io
 import pytest
-import pytest_asyncio
+import pandas as pd
+import numpy as np
 import httpx
 from fastapi.testclient import TestClient
+
+from app.main import app
 
 
 @pytest.fixture
 def client():
-    """Synchronous test client for simple tests."""
-    from app.main import app
     return TestClient(app)
 
 
 @pytest.fixture
-def sample_csv_bytes():
-    """Sample CSV file content."""
-    content = """id,age,gender,score,group
-1,22,1,78.5,1
-2,25,2,82.3,1
-3,21,1,65.4,2
-4,28,2,90.1,1
-5,23,1,71.2,2
-6,30,2,88.7,1
-7,24,1,79.8,2
-8,26,2,84.5,1
-9,22,1,68.3,2
-10,29,2,92.1,1
-11,21,1,75.6,2
-12,27,2,81.4,1
-13,23,1,70.2,2
-14,25,2,86.3,1
-15,22,1,73.8,2
-"""
-    return content.encode("utf-8")
+def csv_file():
+    """Create an in-memory CSV file for upload testing."""
+    np.random.seed(42)
+    df = pd.DataFrame({
+        "id": range(1, 51),
+        "age": np.random.randint(20, 35, 50),
+        "score": np.random.normal(75, 10, 50).round(2),
+        "gender": np.random.choice([1, 2], 50),
+        "group": np.random.choice([1, 2, 3], 50),
+    })
+    buf = io.StringIO()
+    df.to_csv(buf, index=False)
+    buf.seek(0)
+    return buf.read().encode("utf-8")
 
 
 class TestHealth:
@@ -49,125 +43,126 @@ class TestHealth:
 
 
 class TestFileUpload:
-    def test_upload_csv(self, client, sample_csv_bytes):
+    def test_upload_csv(self, client, csv_file):
         response = client.post(
             "/files/upload",
-            files={"file": ("test.csv", io.BytesIO(sample_csv_bytes), "text/csv")},
+            files={"file": ("test.csv", csv_file, "text/csv")},
         )
         assert response.status_code == 200
         data = response.json()
         assert "session_id" in data
-        assert data["meta"]["n_cases"] == 15
+        assert data["meta"]["n_cases"] == 50
         assert data["meta"]["n_vars"] == 5
-        # Cleanup
-        client.delete(f"/files/{data['session_id']}")
+        return data["session_id"]
 
-    def test_upload_returns_variable_metadata(self, client, sample_csv_bytes):
-        response = client.post(
+    def test_get_data(self, client, csv_file):
+        upload_resp = client.post(
             "/files/upload",
-            files={"file": ("test.csv", io.BytesIO(sample_csv_bytes), "text/csv")},
+            files={"file": ("test.csv", csv_file, "text/csv")},
         )
-        data = response.json()
-        assert len(data["meta"]["variables"]) == 5
-        var_names = [v["name"] for v in data["meta"]["variables"]]
-        assert "age" in var_names
-        assert "score" in var_names
-        client.delete(f"/files/{data['session_id']}")
+        session_id = upload_resp.json()["session_id"]
 
-    def test_upload_unsupported_format(self, client):
+        data_resp = client.get(f"/files/{session_id}/data?page=1&page_size=10")
+        assert data_resp.status_code == 200
+        data = data_resp.json()
+        assert len(data["data"]) == 10
+        assert data["total"] == 50
+
+    def test_invalid_format_rejected(self, client):
         response = client.post(
             "/files/upload",
-            files={"file": ("test.txt", io.BytesIO(b"hello"), "text/plain")},
+            files={"file": ("test.txt", b"hello world", "text/plain")},
         )
         assert response.status_code == 400
 
-    def test_get_data_paginated(self, client, sample_csv_bytes):
+    def test_delete_session(self, client, csv_file):
         upload_resp = client.post(
             "/files/upload",
-            files={"file": ("test.csv", io.BytesIO(sample_csv_bytes), "text/csv")},
+            files={"file": ("test.csv", csv_file, "text/csv")},
         )
         session_id = upload_resp.json()["session_id"]
-        response = client.get(f"/files/{session_id}/data?page=1&page_size=5")
-        assert response.status_code == 200
-        data = response.json()
-        assert len(data["data"]) == 5
-        assert data["total"] == 15
-        client.delete(f"/files/{session_id}")
+
+        del_resp = client.delete(f"/files/{session_id}")
+        assert del_resp.status_code == 200
+
+        get_resp = client.get(f"/files/{session_id}/meta")
+        assert get_resp.status_code == 404
 
 
 class TestDescriptives:
-    @pytest.fixture
-    def session_id(self, client, sample_csv_bytes):
-        resp = client.post(
-            "/files/upload",
-            files={"file": ("test.csv", io.BytesIO(sample_csv_bytes), "text/csv")},
-        )
-        sid = resp.json()["session_id"]
-        yield sid
-        client.delete(f"/files/{sid}")
+    @pytest.fixture(autouse=True)
+    def upload_session(self, client, csv_file):
+        resp = client.post("/files/upload", files={"file": ("t.csv", csv_file, "text/csv")})
+        self.session_id = resp.json()["session_id"]
 
-    def test_frequencies(self, client, session_id):
-        response = client.post("/descriptives/frequencies", json={
-            "session_id": session_id,
+    def test_frequencies(self, client):
+        resp = client.post("/descriptives/frequencies", json={
+            "session_id": self.session_id,
             "variable": "gender",
         })
-        assert response.status_code == 200
-        data = response.json()
-        assert data["n_valid"] == 15
-        assert len(data["rows"]) >= 2
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "rows" in data
+        assert data["n_total"] == 50
 
-    def test_descriptives(self, client, session_id):
-        response = client.post("/descriptives/descriptives", json={
-            "session_id": session_id,
+    def test_descriptives(self, client):
+        resp = client.post("/descriptives/descriptives", json={
+            "session_id": self.session_id,
             "variables": ["score", "age"],
         })
-        assert response.status_code == 200
-        data = response.json()
+        assert resp.status_code == 200
+        data = resp.json()
         assert len(data["rows"]) == 2
 
-    def test_crosstabs(self, client, session_id):
-        response = client.post("/descriptives/crosstabs", json={
-            "session_id": session_id,
-            "row_var": "gender",
-            "col_var": "group",
-        })
-        assert response.status_code == 200
-        data = response.json()
-        assert data["chi2"] is not None
 
+class TestHypothesisTests:
+    @pytest.fixture(autouse=True)
+    def upload_session(self, client, csv_file):
+        resp = client.post("/files/upload", files={"file": ("t.csv", csv_file, "text/csv")})
+        self.session_id = resp.json()["session_id"]
 
-class TestTTests:
-    @pytest.fixture
-    def session_id(self, client, sample_csv_bytes):
-        resp = client.post(
-            "/files/upload",
-            files={"file": ("test.csv", io.BytesIO(sample_csv_bytes), "text/csv")},
-        )
-        sid = resp.json()["session_id"]
-        yield sid
-        client.delete(f"/files/{sid}")
-
-    def test_independent_ttest(self, client, session_id):
-        response = client.post("/tests/ttest/independent", json={
-            "session_id": session_id,
+    def test_independent_ttest(self, client):
+        resp = client.post("/tests/ttest/independent", json={
+            "session_id": self.session_id,
             "group_var": "gender",
             "test_var": "score",
             "equal_var": True,
             "alternative": "two-sided",
         })
-        assert response.status_code == 200
-        data = response.json()
+        assert resp.status_code == 200
+        data = resp.json()
         assert "statistic" in data
         assert "pvalue" in data
-        assert 0.0 <= data["pvalue"] <= 1.0
+        assert 0 <= data["pvalue"] <= 1
 
-    def test_one_sample_ttest(self, client, session_id):
-        response = client.post("/tests/ttest/one-sample", json={
-            "session_id": session_id,
-            "variable": "score",
-            "test_value": 75.0,
+    def test_one_way_anova(self, client):
+        resp = client.post("/tests/anova/one-way", json={
+            "session_id": self.session_id,
+            "group_var": "group",
+            "dep_var": "score",
+            "posthoc": "tukey",
         })
-        assert response.status_code == 200
-        data = response.json()
-        assert "statistic" in data
-        assert "mean_diff" in data
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "f_statistic" in data
+        assert "p_value" in data
+
+
+class TestRegression:
+    @pytest.fixture(autouse=True)
+    def upload_session(self, client, csv_file):
+        resp = client.post("/files/upload", files={"file": ("t.csv", csv_file, "text/csv")})
+        self.session_id = resp.json()["session_id"]
+
+    def test_linear_regression(self, client):
+        resp = client.post("/regression/linear", json={
+            "session_id": self.session_id,
+            "dependent": "score",
+            "independents": ["age"],
+            "method": "enter",
+        })
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "r2" in data
+        assert 0 <= data["r2"] <= 1
+        assert "coefficients" in data

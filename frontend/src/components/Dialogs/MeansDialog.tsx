@@ -21,7 +21,7 @@ export function MeansDialog({ open, onClose }: Props) {
     if (!sessionId || !depVar || !independentVar) { toast.error("Select both variables"); return; }
     setLoading(true);
     try {
-      const result = await testsApi.means({ session_id: sessionId, dep_var: depVar, independent_var: independentVar });
+      const result = await testsApi.means({ session_id: sessionId, dep_var: depVar, factor_var: independentVar });
       addOutputBlock({
         id: crypto.randomUUID(),
         type: "table",

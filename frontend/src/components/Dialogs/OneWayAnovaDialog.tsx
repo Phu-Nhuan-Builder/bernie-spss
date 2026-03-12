@@ -22,7 +22,7 @@ export function OneWayAnovaDialog({ open, onClose }: Props) {
     if (!sessionId || !depVar || !factorVar) { toast.error("Select dependent and factor variables"); return; }
     setLoading(true);
     try {
-      const result = await testsApi.oneWayAnova({ session_id: sessionId, dep_var: depVar, factor_var: factorVar, posthoc });
+      const result = await testsApi.oneWayAnova({ session_id: sessionId, dep_var: depVar, group_var: factorVar, posthoc });
       addOutputBlock({
         id: crypto.randomUUID(),
         type: "table",

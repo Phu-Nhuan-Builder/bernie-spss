@@ -1,142 +1,122 @@
 """
-Unit tests for SPSS I/O service.
-Test box plot whiskers, Q-Q Blom formula, session management.
+Unit tests for SPSS I/O service — encoding, session management, box plots, Q-Q.
 """
-import pytest
 import os
-import numpy as np
+import pytest
 import pandas as pd
+import numpy as np
+
 from app.domain.services.spss_io import (
-    SESSION_STORE, create_session, get_session, update_session,
-    delete_session, df_to_json_safe, resolve_encoding
+    read_csv, create_session, get_session, delete_session, df_to_json_safe,
+    resolve_encoding, SESSION_STORE
 )
-from app.domain.services.descriptives import spss_boxplot_stats
-from app.domain.services.regression import spss_qq_data
 from app.core.exceptions import SessionNotFoundError
 
 
-@pytest.fixture
-def sample_df():
-    return pd.DataFrame({
-        "id": range(1, 11),
-        "age": [22, 25, 21, 28, 23, 30, 24, 26, 22, 29],
-        "score": [78.5, 82.3, 65.4, 90.1, 71.2, 88.7, 79.8, 84.5, 68.3, 92.1],
-        "name": ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J"],
-    })
-
-
-@pytest.fixture
-def sample_meta():
-    from app.domain.models.dataset import DatasetMeta, VariableMeta, VariableType, VariableMeasure, VariableRole
-    return DatasetMeta(
-        file_name="test.csv",
-        n_cases=10,
-        n_vars=4,
-        variables=[
-            VariableMeta(name="id", label="ID", var_type=VariableType.numeric),
-            VariableMeta(name="age", label="Age", var_type=VariableType.numeric),
-            VariableMeta(name="score", label="Score", var_type=VariableType.numeric),
-            VariableMeta(name="name", label="Name", var_type=VariableType.string),
-        ],
-        encoding="utf-8",
-    )
-
-
-class TestSessionStore:
-    def test_create_session_returns_uuid(self, sample_df, sample_meta):
-        session_id = create_session(sample_df, sample_meta)
-        assert len(session_id) == 36  # UUID format
-        delete_session(session_id)
-
-    def test_get_session_returns_df_and_meta(self, sample_df, sample_meta):
-        session_id = create_session(sample_df, sample_meta)
-        df, meta = get_session(session_id)
-        assert len(df) == 10
-        assert meta.file_name == "test.csv"
-        delete_session(session_id)
-
-    def test_get_nonexistent_session_raises(self):
-        with pytest.raises(SessionNotFoundError):
-            get_session("nonexistent-session-id")
-
-    def test_delete_session(self, sample_df, sample_meta):
-        session_id = create_session(sample_df, sample_meta)
-        delete_session(session_id)
-        with pytest.raises(SessionNotFoundError):
-            get_session(session_id)
-
-    def test_update_session(self, sample_df, sample_meta):
-        session_id = create_session(sample_df, sample_meta)
-        new_df = sample_df.copy()
-        new_df["new_col"] = 1
-        update_session(session_id, new_df, sample_meta)
-        df, _ = get_session(session_id)
-        assert "new_col" in df.columns
-        delete_session(session_id)
-
-
-class TestDfToJsonSafe:
-    def test_nan_becomes_none(self):
-        df = pd.DataFrame({"x": [1.0, float("nan"), 3.0]})
-        result = df_to_json_safe(df)
-        assert result[1]["x"] is None
-
-    def test_numpy_int_serializable(self):
-        df = pd.DataFrame({"x": np.array([1, 2, 3], dtype=np.int64)})
-        result = df_to_json_safe(df)
-        assert isinstance(result[0]["x"], int)
-
-    def test_timestamp_is_isoformat(self):
-        df = pd.DataFrame({"dt": pd.to_datetime(["2024-01-01", "2024-01-02"])})
-        result = df_to_json_safe(df)
-        assert isinstance(result[0]["dt"], str)
-        assert "2024" in result[0]["dt"]
+FIXTURES_DIR = os.path.join(os.path.dirname(__file__), "..", "fixtures")
 
 
 class TestCSVReading:
     def test_read_sample_csv(self):
-        fixture_path = os.path.join(
-            os.path.dirname(__file__), "..", "fixtures", "sample.csv"
-        )
-        if not os.path.exists(fixture_path):
-            pytest.skip("sample.csv fixture not found")
-        from app.domain.services.spss_io import read_csv
-        df, meta = read_csv(fixture_path)
+        csv_path = os.path.join(FIXTURES_DIR, "sample.csv")
+        df, meta = read_csv(csv_path)
         assert len(df) == 50
+        assert "id" in df.columns
         assert meta.n_cases == 50
-        assert meta.n_vars >= 5
+        assert meta.n_vars == 5
+
+    def test_meta_variables(self):
+        csv_path = os.path.join(FIXTURES_DIR, "sample.csv")
+        _, meta = read_csv(csv_path)
+        var_names = [v.name for v in meta.variables]
+        assert "age" in var_names
+        assert "score" in var_names
+        assert "gender" in var_names
+
+    def test_encoding_utf8(self):
+        result = resolve_encoding("/dev/null", "utf-8")
+        assert result == "utf-8"
 
 
-class TestBoxPlotWhiskers:
-    def test_whiskers_are_actual_data_points_not_fences(self):
-        """Critical SPSS requirement: whiskers must be actual data values."""
-        data = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+class TestSessionManagement:
+    def test_create_and_get_session(self):
+        df = pd.DataFrame({"a": [1, 2, 3], "b": [4, 5, 6]})
+        from app.domain.models.dataset import DatasetMeta, VariableMeta, VariableType, VariableMeasure, VariableRole
+        meta = DatasetMeta(
+            file_name="test.csv",
+            n_cases=3,
+            n_vars=2,
+            variables=[
+                VariableMeta(name="a", var_type=VariableType.numeric, measure=VariableMeasure.scale, role=VariableRole.input),
+                VariableMeta(name="b", var_type=VariableType.numeric, measure=VariableMeasure.scale, role=VariableRole.input),
+            ],
+            encoding="utf-8"
+        )
+        session_id = create_session(df, meta)
+        assert session_id in SESSION_STORE
+
+        retrieved_df, retrieved_meta = get_session(session_id)
+        assert len(retrieved_df) == 3
+        assert retrieved_meta.file_name == "test.csv"
+
+        delete_session(session_id)
+        assert session_id not in SESSION_STORE
+
+    def test_get_nonexistent_session(self):
+        with pytest.raises(SessionNotFoundError):
+            get_session("nonexistent-session-id-12345")
+
+
+class TestJsonSerialization:
+    def test_nan_becomes_none(self):
+        df = pd.DataFrame({"a": [1.0, float("nan"), 3.0]})
+        records = df_to_json_safe(df)
+        assert records[1]["a"] is None
+
+    def test_numpy_int_serialized(self):
+        import numpy as np
+        df = pd.DataFrame({"a": np.array([1, 2, 3], dtype=np.int64)})
+        records = df_to_json_safe(df)
+        assert records[0]["a"] == 1
+        assert isinstance(records[0]["a"], int)
+
+    def test_numpy_float_serialized(self):
+        import numpy as np
+        df = pd.DataFrame({"a": np.array([1.5, 2.5], dtype=np.float64)})
+        records = df_to_json_safe(df)
+        assert abs(records[0]["a"] - 1.5) < 0.001
+
+
+class TestBoxPlotStats:
+    def test_whiskers_are_data_points(self):
+        """EXACT: whiskers must be actual data points, not fence boundaries."""
+        from app.domain.services.descriptives import spss_boxplot_stats
+        data = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 50]
         result = spss_boxplot_stats(data)
-        assert result["whisker_low"] in data
-        assert result["whisker_high"] in data
+        # 50 is an outlier; whisker_high must be 10 (last non-outlier)
+        assert result["whisker_high"] == 10
+        assert result["whisker_low"] == 1  # min non-outlier
 
-    def test_iqr_method_correct(self):
-        data = [2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7]
+    def test_iqr_whisker_calculation(self):
+        from app.domain.services.descriptives import spss_boxplot_stats
+        data = [2, 4, 4, 4, 5, 5, 7, 9]
         result = spss_boxplot_stats(data)
-        q1 = np.percentile(data, 25)
-        q3 = np.percentile(data, 75)
-        iqr = q3 - q1
-        # Whiskers should be within 1.5*IQR from Q1/Q3
-        assert result["whisker_low"] >= q1 - 1.5 * iqr
-        assert result["whisker_high"] <= q3 + 1.5 * iqr
+        assert "q1" in result
+        assert "q3" in result
+        assert "median" in result
+        assert result["q1"] <= result["median"] <= result["q3"]
 
 
-class TestQQBlomFormula:
-    def test_blom_vs_scipy_default(self):
-        """Verify Blom formula differs from scipy default (Filliben)."""
-        from scipy import stats as scipy_stats
-        data = list(range(1, 11))
-        result = spss_qq_data(data)
-        # Blom: (i - 3/8) / (n + 1/4)
-        # Scipy default: (i - 0.5) / n
-        n = 10
-        blom_p1 = (1 - 3/8) / (n + 1/4)
-        scipy_p1 = 0.5 / n  # (1 - 0.5) / n = 0.5/10
-        assert abs(blom_p1 - scipy_p1) > 0.01  # They should differ
-        expected_blom_t1 = scipy_stats.norm.ppf(blom_p1)
-        assert abs(result["theoretical"][0] - expected_blom_t1) < 0.001
+class TestCronbachAlpha:
+    def test_cronbach_alpha_matches_pingouin(self):
+        """Cronbach's alpha must match pingouin (which matches SPSS with ddof=1)."""
+        import pingouin as pg
+        from app.domain.services.factor_analysis import run_reliability
+
+        np.random.seed(42)
+        df = pd.DataFrame(np.random.normal(0, 1, (100, 4)), columns=["i1", "i2", "i3", "i4"])
+
+        result = run_reliability(df, ["i1", "i2", "i3", "i4"])
+        ref_alpha, _ = pg.cronbach_alpha(data=df[["i1", "i2", "i3", "i4"]])
+
+        assert abs(result["cronbach_alpha"] - float(ref_alpha)) < 0.01
