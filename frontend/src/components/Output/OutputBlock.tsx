@@ -1006,17 +1006,96 @@ function renderAIAnalyze(c: Record<string, unknown>): ReactNode {
   const plan = c.plan as Record<string, unknown> | undefined;
   const charts = c.charts;
   const tables = c.tables;
+  const meta = c.meta as Record<string, unknown> | undefined;
+  const trace = c.decision_trace as Record<string, unknown> | undefined;
+
+  const degraded = meta?.degraded === true;
+  const confidence = typeof meta?.confidence === "number" ? meta.confidence : null;
+  const requestedMethod = trace?.requested_method || meta?.original_method || plan?.method;
+  const executedMethod = trace?.executed_method || meta?.analysis_type || plan?.method;
+  const constraints = Array.isArray(trace?.statistical_constraints) ? trace.statistical_constraints as string[] : [];
+  const nObs: number | null = typeof trace?.n_observations === "number" ? trace.n_observations : null;
+
+  // Confidence badge color
+  const confColor = confidence !== null
+    ? confidence >= 0.7 ? "bg-green-100 text-green-800 border-green-300"
+    : confidence >= 0.3 ? "bg-yellow-100 text-yellow-800 border-yellow-300"
+    : "bg-red-100 text-red-800 border-red-300"
+    : "";
+  const confLabel = confidence !== null
+    ? confidence >= 0.7 ? "High" : confidence >= 0.3 ? "Medium" : "Low"
+    : "";
+
+  const confBadge: ReactNode = confidence !== null ? (
+    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold border ${confColor}`}>
+      📊 Confidence: {(confidence * 100).toFixed(0)}% ({confLabel})
+    </span>
+  ) : null;
+
+  const nObsInfo: ReactNode = nObs !== null ? (
+    <div className="text-[10px] text-gray-400">
+      Data: {nObs} observation{nObs !== 1 ? "s" : ""}
+      {!!plan?.description && <> — {String(plan.description)}</>}
+    </div>
+  ) : null;
+
+  const fallbackReason: ReactNode = degraded && trace?.fallback_reason ? (
+    <div className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded px-2 py-1.5 space-y-1">
+      <div className="flex items-start gap-1.5">
+        <span className="mt-0.5">⚡</span>
+        <div>
+          <strong>Why fallback?</strong> {String(trace.fallback_reason)}
+        </div>
+      </div>
+    </div>
+  ) : null;
+
+  const constraintsList: ReactNode = constraints.length > 0 ? (
+    <div className="text-[10px] text-gray-500 space-y-0.5">
+      {constraints.map((item, i) => (
+        <div key={i} className="flex items-start gap-1">
+          <span className="text-red-400 mt-px">•</span>
+          <span>{String(item)}</span>
+        </div>
+      ))}
+    </div>
+  ) : null;
 
   return (
     <div className="space-y-4">
-      {!!plan?.description && (
-        <div className="text-xs text-gray-500 flex items-center gap-1.5">
-          <span>🔬</span> Method: <strong>{String(plan.method)}</strong> — {String(plan.description)}
+      {/* Decision Trace Banner */}
+      <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 space-y-2">
+        <div className="flex items-center justify-between flex-wrap gap-2">
+          <div className="flex items-center gap-2 text-xs">
+            <span>🔬</span>
+            <span className="text-gray-500">Requested:</span>
+            <strong className="text-gray-800">{String(requestedMethod).replace(/_/g, " ")}</strong>
+            {degraded && (
+              <>
+                <span className="text-gray-400">→</span>
+                <span className="text-gray-500">Executed:</span>
+                <strong className="text-blue-700">{String(executedMethod).replace(/_/g, " ")}</strong>
+                <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-medium bg-amber-100 text-amber-800 border border-amber-300">
+                  ↩ Fallback
+                </span>
+              </>
+            )}
+          </div>
+          {confBadge}
         </div>
-      )}
+        {nObsInfo}
+        {fallbackReason}
+        {constraintsList}
+      </div>
+
+      {/* Insight */}
       {insight && renderAIInsightCard(insight)}
+
+      {/* Charts + Tables */}
       {renderAICharts(charts)}
       {renderAITables(tables)}
+
+      {/* Warnings */}
       {Array.isArray(plan?.warnings) && (plan.warnings as string[]).length > 0 && (
         <div className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded p-2">
           ⚠️ {(plan.warnings as string[]).join("; ")}

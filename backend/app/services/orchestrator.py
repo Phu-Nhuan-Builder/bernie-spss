@@ -185,6 +185,7 @@ async def analyze(session_id: str, query: str) -> Dict[str, Any]:
 
     results = None
     executed_method = plan["method"]
+    fallback_reason = None
     try:
         results = _execute_plan(plan, df)
         results = _sanitize_results(results)
@@ -192,6 +193,7 @@ async def analyze(session_id: str, query: str) -> Dict[str, Any]:
     except Exception as e:
         logger.warning(f"[PIPELINE] Primary method {plan['method']} FAILED: {e}")
         original_error = str(e)
+        fallback_reason = original_error
 
         # Try degradation chain
         fallbacks = DEGRADATION_CHAIN.get(plan["method"], [])
@@ -224,6 +226,36 @@ async def analyze(session_id: str, query: str) -> Dict[str, Any]:
                 "charts": [],
                 "tables": [],
             }
+
+    # ── Build decision_trace (Explainable AI) ────────────────────────────
+    degraded = executed_method != plan["method"]
+    n_vars = len(plan.get("params", {}).get("variables", plan.get("params", {}).get("independents", [])))
+    stat_constraints = []
+    if n_obs < 3:
+        stat_constraints.append(f"Need ≥3 observations for any statistical test, got {n_obs}")
+    if n_obs < n_vars + 2 and plan["method"] in ("ols_regression", "binary_logistic"):
+        stat_constraints.append(f"Regression requires n ≥ {n_vars + 2} (predictors + intercept + 1 DOF), got {n_obs}")
+    if n_obs < 2:
+        stat_constraints.append("Variance undefined with n=1 — cannot compute correlation or significance")
+
+    # Confidence score: 0.0 = unusable, 1.0 = solid
+    if n_vars > 0:
+        confidence = min(1.0, round(n_obs / max(n_vars * 5, 10), 2))
+    else:
+        confidence = min(1.0, round(n_obs / 30, 2))
+    if degraded:
+        confidence = round(confidence * 0.5, 2)
+
+    decision_trace = {
+        "requested_method": plan["method"],
+        "executed_method": executed_method,
+        "fallback_triggered": degraded,
+        "fallback_reason": fallback_reason,
+        "statistical_constraints": stat_constraints,
+        "n_observations": n_obs,
+        "confidence": confidence,
+    }
+    _log_pipeline("decision_trace", decision_trace)
 
     # 4. Build charts + tables from real results (wrapped — never crash on builder bugs)
     try:
@@ -271,16 +303,17 @@ async def analyze(session_id: str, query: str) -> Dict[str, Any]:
         "insight": insight,
         "charts": charts,
         "tables": tables,
+        "decision_trace": decision_trace,
         "meta": {
             "analysis_type": executed_method,
             "original_method": plan["method"],
-            "degraded": executed_method != plan["method"],
-            "confidence": intent.get("confidence", 0),
+            "degraded": degraded,
+            "confidence": confidence,
             "warnings": plan.get("warnings", []),
         },
     }
 
-    logger.info(f"[PIPELINE] ═══ END analyze → method={executed_method} (planned={plan['method']}), charts={len(charts)}, tables={len(tables)} ═══")
+    logger.info(f"[PIPELINE] ═══ END analyze → method={executed_method} (planned={plan['method']}), confidence={confidence}, charts={len(charts)}, tables={len(tables)} ═══")
     return response
 
 
