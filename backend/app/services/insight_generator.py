@@ -15,7 +15,7 @@ Given the following statistical analysis results, generate a clear, insightful i
 
 Analysis type: {method}
 Description: {description}
-
+{constraints_section}
 Raw results (JSON):
 {results_json}
 
@@ -34,6 +34,7 @@ Rules:
 - If p >= 0.05, explain what "not significant" means (not the same as "no effect").
 - Be concise but thorough.
 - If the user's language appears to be Vietnamese, respond in Vietnamese.
+- CRITICAL: If data constraints are listed above, you MUST acknowledge them. Do NOT claim correlations, effects, or significance if the sample size is too small. Instead, describe the raw values and explicitly state the limitation.
 - Respond ONLY with valid JSON."""
 
 
@@ -41,6 +42,9 @@ async def generate_insight(
     method: str,
     description: str,
     results: Dict[str, Any],
+    n_obs: int = 0,
+    warnings: list = None,
+    degraded_from: str = None,
 ) -> Dict[str, Any]:
     """
     Generate human-readable insight from statistical results.
@@ -49,14 +53,28 @@ async def generate_insight(
     import json
 
     results_str = json.dumps(results, indent=2, default=str, ensure_ascii=False)
-    # Truncate if too long
     if len(results_str) > 3000:
         results_str = results_str[:3000] + "\n... (truncated)"
+
+    # Build constraints section for prompt
+    constraints_parts = []
+    if n_obs > 0 and n_obs < 10:
+        constraints_parts.append(f"DATA CONSTRAINT: Only {n_obs} observation(s). This is VERY small. Do NOT make statistical claims.")
+    if degraded_from:
+        constraints_parts.append(f"NOTE: Originally attempted {degraded_from} but it failed due to insufficient data. Showing {method} instead.")
+    if warnings:
+        for w in warnings:
+            constraints_parts.append(f"WARNING: {w}")
+
+    constraints_section = ""
+    if constraints_parts:
+        constraints_section = "\n" + "\n".join(constraints_parts) + "\n"
 
     prompt = INSIGHT_PROMPT.format(
         method=method,
         description=description,
         results_json=results_str,
+        constraints_section=constraints_section,
     )
 
     try:

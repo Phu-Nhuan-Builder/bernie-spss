@@ -159,11 +159,14 @@ async def analyze(session_id: str, query: str) -> Dict[str, Any]:
         }
 
     # 3. Execute real computation — AI-first with graceful degradation
-    #    If the AI-selected method fails (e.g. insufficient obs), try downgrading:
-    #    regression → correlation → descriptives
+    #    If the AI-selected method fails, try downgrading:
+    #    regression → correlation (≥ 3 obs) → descriptives
+    n_obs = len(df)
     DEGRADATION_CHAIN = {
-        "ols_regression": [
-            ("correlation", lambda p: {"variables": [p.get("dependent", "")] + p.get("independents", []), "method": "pearson"}),
+        "ols_regression": (
+            [("correlation", lambda p: {"variables": [p.get("dependent", "")] + p.get("independents", []), "method": "pearson"})]
+            if n_obs >= 3 else []
+        ) + [
             ("descriptives", lambda p: {"variables": [p.get("dependent", "")] + p.get("independents", [])}),
         ],
         "binary_logistic": [
@@ -245,12 +248,15 @@ async def analyze(session_id: str, query: str) -> Dict[str, Any]:
     if not charts and not tables:
         logger.warning(f"[PIPELINE] ⚠ No charts or tables generated for method '{executed_method}'")
 
-    # 5. Generate insight (LLM second pass — explains computed results)
+    # 5. Generate insight (LLM second pass — constraint-aware)
     try:
         insight = await generate_insight(
             method=executed_method,
             description=plan["description"],
             results=results,
+            n_obs=n_obs,
+            warnings=plan.get("warnings", []),
+            degraded_from=plan["method"] if executed_method != plan["method"] else None,
         )
         _log_pipeline("insight_headline", insight.get("headline", ""))
     except Exception as e:
