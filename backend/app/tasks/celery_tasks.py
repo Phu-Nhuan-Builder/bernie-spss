@@ -1,6 +1,8 @@
 """
 Celery Tasks — Long-running statistical computations
 Threshold: n_vars × n_cases > 50,000 cells → Celery
+
+DISK SAFETY: task_ignore_result=True, result_backend=None
 """
 import logging
 
@@ -11,9 +13,8 @@ try:
     from app.core.config import settings
 
     celery_app = Celery(
-        "bernie_spss",
+        "statworks",
         broker=settings.REDIS_URL,
-        backend=settings.REDIS_URL,
     )
 
     celery_app.conf.update(
@@ -25,9 +26,12 @@ try:
         task_soft_time_limit=120,
         task_time_limit=180,
         worker_max_memory_per_child=400_000,
+        # DISK SAFETY — do not persist results
+        task_ignore_result=True,
+        result_backend=None,
     )
 
-    @celery_app.task(bind=True, name="bernie_spss.run_factor_analysis")
+    @celery_app.task(bind=True, ignore_result=True, name="statworks.run_factor_analysis")
     def run_factor_analysis_task(
         self,
         session_id: str,
@@ -43,14 +47,10 @@ try:
         from app.domain.services.spss_io import SESSION_STORE
         from app.domain.services.factor_analysis import run_efa
 
-        self.update_state(state="PROGRESS", meta={"step": "Loading data from session"})
-
         if session_id not in SESSION_STORE:
             raise ValueError(f"Session {session_id} not found")
 
         df, meta = SESSION_STORE[session_id]
-
-        self.update_state(state="PROGRESS", meta={"step": "Fitting factor model"})
         result = run_efa(df, variables, n_factors, extraction, rotation)
         return result
 

@@ -1,6 +1,6 @@
 """
 SPSS I/O Service — Read/write .sav, .csv, .xlsx files
-In-memory session store for MVP (single-dyno Render)
+In-memory session store with TTL for MVP (single-dyno Render)
 """
 import uuid
 import math
@@ -12,14 +12,20 @@ from datetime import datetime
 import chardet
 import pandas as pd
 import numpy as np
+from cachetools import TTLCache
+
+from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
-# ── In-memory session store ────────────────────────────────────────────────────
+# ── In-memory session store with TTL auto-eviction ─────────────────────────────
 # Key: session_id (str)
 # Value: (DataFrame, DatasetMeta)
-# Sessions are cleared on process restart (acceptable for MVP)
-SESSION_STORE: Dict[str, Tuple[Any, Any]] = {}
+# Sessions auto-evict after TTL; cleared on process restart
+SESSION_STORE: TTLCache = TTLCache(
+    maxsize=settings.SESSION_MAX_COUNT,
+    ttl=settings.SESSION_TTL_SECONDS,
+)
 
 VIETNAMESE_ENCODINGS = ["utf-8", "windows-1258", "windows-1252", "cp1258", "latin-1"]
 

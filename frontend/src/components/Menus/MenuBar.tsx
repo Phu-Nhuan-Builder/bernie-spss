@@ -166,7 +166,7 @@ export function MenuBar({ onShowOutput }: MenuBarProps) {
       {/* Menu Bar */}
       <div className="flex items-center bg-gray-200 border-b border-gray-400 px-1 py-0.5 select-none">
         {/* Logo/App Name */}
-        <span className="text-xs font-bold text-spss-blue px-3 py-1 mr-2">Bernie-SPSS</span>
+        <span className="text-xs font-bold text-spss-blue px-3 py-1 mr-2">SOTA StatWorks</span>
 
         {menus.map((menu) => (
           <div key={menu.label} className="relative">

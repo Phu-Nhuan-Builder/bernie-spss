@@ -1,14 +1,13 @@
 """
 File I/O Routes — Upload, read, export SPSS/CSV/Excel files
+DISK SAFETY: All temp files use statworks_ prefix and are cleaned in finally blocks.
 """
 import os
 import logging
-import tempfile
-from pathlib import Path
-from typing import Optional
 
 from fastapi import APIRouter, File, UploadFile, HTTPException, Query
 from fastapi.responses import FileResponse, JSONResponse
+from starlette.background import BackgroundTask
 
 from app.domain.services.spss_io import (
     SESSION_STORE, read_file, create_session, get_session,
@@ -19,6 +18,7 @@ from app.api.schemas.files import (
     UploadResponse, DataPageResponse, UpdateMetaRequest
 )
 from app.core.config import settings
+from app.core.cleanup import make_temp_path
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -32,6 +32,7 @@ async def upload_file(file: UploadFile = File(...)):
     if not file.filename:
         raise HTTPException(status_code=400, detail="No filename provided")
 
+    from pathlib import Path
     ext = Path(file.filename).suffix.lower()
     if ext not in ALLOWED_EXTENSIONS:
         raise HTTPException(
@@ -39,7 +40,6 @@ async def upload_file(file: UploadFile = File(...)):
             detail=f"Unsupported file type '{ext}'. Use: {', '.join(ALLOWED_EXTENSIONS)}"
         )
 
-    # Check file size
     content = await file.read()
     if len(content) > settings.max_upload_bytes:
         raise HTTPException(
@@ -47,14 +47,12 @@ async def upload_file(file: UploadFile = File(...)):
             detail=f"File too large. Max {settings.MAX_UPLOAD_MB}MB"
         )
 
-    # Save to temp file
     tmp_path = None
     try:
-        with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as tmp:
-            tmp.write(content)
-            tmp_path = tmp.name
+        tmp_path = make_temp_path(suffix=ext)
+        with open(tmp_path, "wb") as f:
+            f.write(content)
 
-        # Read file
         df, meta = read_file(tmp_path, ext.lstrip("."))
         session_id = create_session(df, meta)
 
@@ -116,13 +114,20 @@ async def update_meta(session_id: str, body: UpdateMetaRequest):
     return meta
 
 
+def _remove_file(path: str):
+    """Background task to remove temp file after response is sent."""
+    try:
+        if os.path.exists(path):
+            os.unlink(path)
+    except OSError:
+        pass
+
+
 @router.post("/{session_id}/export/sav")
 async def export_sav(session_id: str):
     """Export session data as SPSS .sav file."""
     df, meta = get_session(session_id)
-
-    with tempfile.NamedTemporaryFile(suffix=".sav", delete=False) as tmp:
-        tmp_path = tmp.name
+    tmp_path = make_temp_path(suffix=".sav")
 
     try:
         write_sav(df, meta, tmp_path)
@@ -133,11 +138,10 @@ async def export_sav(session_id: str):
             path=tmp_path,
             media_type="application/octet-stream",
             filename=filename,
-            background=None,
+            background=BackgroundTask(_remove_file, tmp_path),
         )
     except Exception as e:
-        if os.path.exists(tmp_path):
-            os.unlink(tmp_path)
+        _remove_file(tmp_path)
         raise HTTPException(status_code=500, detail=f"Export failed: {str(e)}")
 
 

@@ -794,6 +794,298 @@ function renderReliability(c: Record<string, unknown>): ReactNode {
   );
 }
 
+// ── AI Renderers ───────────────────────────────────────────────────────────────
+
+function renderAIInsightCard(insight: Record<string, unknown>): ReactNode {
+  return (
+    <div className="bg-gradient-to-r from-blue-50 to-cyan-50 border border-blue-200 rounded-lg p-4 space-y-3">
+      {!!insight.headline && (
+        <div className="flex items-start gap-2">
+          <span className="text-lg">💡</span>
+          <p className="text-sm font-semibold text-blue-900">{String(insight.headline)}</p>
+        </div>
+      )}
+      {!!insight.interpretation && (
+        <p className="text-xs text-gray-700 leading-relaxed whitespace-pre-wrap">
+          {String(insight.interpretation)}
+        </p>
+      )}
+      {!!insight.significance && (
+        <div className="flex items-start gap-2 bg-white/60 rounded p-2">
+          <span className="text-sm">📊</span>
+          <p className="text-xs text-gray-600">{String(insight.significance)}</p>
+        </div>
+      )}
+      {Array.isArray(insight.recommendations) && insight.recommendations.length > 0 && (
+        <div>
+          <p className="text-[10px] font-semibold text-gray-500 uppercase mb-1">Recommendations</p>
+          <ul className="list-disc list-inside text-xs text-gray-600 space-y-0.5">
+            {(insight.recommendations as string[]).map((r, i) => (
+              <li key={i}>{r}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Chart Renderer (SVG-based) ──────────────────────────────────────────────
+
+function renderSVGChart(chart: Record<string, unknown>): ReactNode {
+  const chartType = String(chart.chart_type || "bar");
+  const title = String(chart.title || "");
+  const xArr = Array.isArray(chart.x) ? chart.x : [];
+  const yArr = Array.isArray(chart.y) ? (chart.y as number[]) : [];
+  const xLabel = chart.x_label ? String(chart.x_label) : "";
+  const yLabel = chart.y_label ? String(chart.y_label) : "";
+  const refLine = typeof chart.reference_line === "number" ? chart.reference_line : null;
+
+  if ((chartType === "bar" || chartType === "line" || chartType === "scatter") && xArr.length > 0 && yArr.length > 0) {
+    const w = 500, h = 250, pad = { t: 20, r: 20, b: 50, l: 60 };
+    const plotW = w - pad.l - pad.r;
+    const plotH = h - pad.t - pad.b;
+    const maxY = Math.max(...yArr, 0) * 1.15 || 1;
+    const minY = Math.min(...yArr, 0);
+    const rangeY = (maxY - minY) || 1;
+    const barW = Math.max(8, Math.min(40, plotW / xArr.length - 4));
+    const colors = ["#2563eb", "#059669", "#d97706", "#dc2626", "#7c3aed", "#0891b2"];
+
+    const toY = (v: number) => pad.t + plotH - ((v - minY) / rangeY) * plotH;
+    const toX = (i: number) => pad.l + (i + 0.5) * (plotW / xArr.length);
+
+    return (
+      <div className="bg-white border border-gray-200 rounded-lg p-3">
+        {title && <p className="text-xs font-semibold text-gray-700 mb-2">📈 {title}</p>}
+        <svg viewBox={`0 0 ${w} ${h}`} className="w-full max-h-[280px]" preserveAspectRatio="xMidYMid meet">
+          {/* Grid lines */}
+          {[0, 0.25, 0.5, 0.75, 1].map((pct) => {
+            const gy = pad.t + plotH * (1 - pct);
+            const val = minY + rangeY * pct;
+            return (
+              <g key={pct}>
+                <line x1={pad.l} y1={gy} x2={w - pad.r} y2={gy} stroke="#e5e7eb" strokeWidth={0.5} />
+                <text x={pad.l - 6} y={gy + 3} textAnchor="end" fill="#9ca3af" fontSize={9}>
+                  {Number.isInteger(val) ? val : val.toFixed(1)}
+                </text>
+              </g>
+            );
+          })}
+
+          {/* Reference line */}
+          {refLine !== null && refLine >= minY && refLine <= maxY && (
+            <line x1={pad.l} y1={toY(refLine)} x2={w - pad.r} y2={toY(refLine)}
+              stroke="#ef4444" strokeWidth={1.5} strokeDasharray="6,3" />
+          )}
+
+          {/* Data */}
+          {chartType === "bar" && yArr.map((v, i) => {
+            const barH = ((v - Math.min(minY, 0)) / rangeY) * plotH;
+            const baseY = toY(Math.max(0, minY));
+            return (
+              <rect key={i} x={toX(i) - barW / 2} y={v >= 0 ? baseY - barH : baseY}
+                width={barW} height={Math.abs(barH)} rx={2}
+                fill={colors[i % colors.length]} opacity={0.85} />
+            );
+          })}
+
+          {chartType === "line" && (
+            <polyline fill="none" stroke="#2563eb" strokeWidth={2}
+              points={yArr.map((v, i) => `${toX(i)},${toY(v)}`).join(" ")} />
+          )}
+          {chartType === "line" && yArr.map((v, i) => (
+            <circle key={i} cx={toX(i)} cy={toY(v)} r={3} fill="#2563eb" />
+          ))}
+
+          {chartType === "scatter" && yArr.map((v, i) => (
+            <circle key={i} cx={toX(i)} cy={toY(v)} r={4} fill="#2563eb" opacity={0.7} />
+          ))}
+
+          {/* X labels */}
+          {xArr.map((label, i) => (
+            <text key={i} x={toX(i)} y={h - pad.b + 16} textAnchor="middle" fill="#6b7280" fontSize={8}
+              transform={`rotate(-30, ${toX(i)}, ${h - pad.b + 16})`}>
+              {String(label).length > 12 ? String(label).slice(0, 12) + "…" : String(label)}
+            </text>
+          ))}
+
+          {/* Axis labels */}
+          {xLabel && <text x={w / 2} y={h - 4} textAnchor="middle" fill="#6b7280" fontSize={10}>{xLabel}</text>}
+          {yLabel && (
+            <text x={14} y={h / 2} textAnchor="middle" fill="#6b7280" fontSize={10}
+              transform={`rotate(-90, 14, ${h / 2})`}>{yLabel}</text>
+          )}
+        </svg>
+      </div>
+    );
+  }
+
+  // Heatmap
+  if (chartType === "heatmap") {
+    const xLabels = Array.isArray(chart.x_labels) ? chart.x_labels as string[] : [];
+    const yLabels = Array.isArray(chart.y_labels) ? chart.y_labels as string[] : [];
+    const z = Array.isArray(chart.z) ? chart.z as number[][] : [];
+    if (!z.length) return null;
+
+    return (
+      <div className="bg-white border border-gray-200 rounded-lg p-3">
+        {title && <p className="text-xs font-semibold text-gray-700 mb-2">📈 {title}</p>}
+        <div className="overflow-auto">
+          <table className="spss-table text-[10px]">
+            <thead>
+              <tr><th></th>{xLabels.map((l, i) => <th key={i}>{l}</th>)}</tr>
+            </thead>
+            <tbody>
+              {z.map((row, ri) => (
+                <tr key={ri}>
+                  <td className="font-semibold bg-gray-50">{yLabels[ri] || ri}</td>
+                  {row.map((val, ci) => {
+                    const absVal = Math.abs(val || 0);
+                    const color = val > 0
+                      ? `rgba(37, 99, 235, ${absVal})` // blue for positive
+                      : `rgba(220, 38, 38, ${absVal})`; // red for negative
+                    return (
+                      <td key={ci} style={{ backgroundColor: color, color: absVal > 0.5 ? "white" : "black" }}>
+                        {typeof val === "number" ? val.toFixed(3) : String(val)}
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    );
+  }
+
+  return null;
+}
+
+function renderAICharts(charts: unknown): ReactNode {
+  if (!Array.isArray(charts) || charts.length === 0) return null;
+  return (
+    <div className="space-y-3">
+      {(charts as Record<string, unknown>[]).map((chart, i) => (
+        <div key={i}>{renderSVGChart(chart)}</div>
+      ))}
+    </div>
+  );
+}
+
+// ── Table Renderer ──────────────────────────────────────────────────────
+
+function renderAITables(tables: unknown): ReactNode {
+  if (!Array.isArray(tables) || tables.length === 0) return null;
+  return (
+    <div className="space-y-3">
+      {(tables as Record<string, unknown>[]).map((table, i) => {
+        const title = String(table.title || "");
+        const columns = Array.isArray(table.columns) ? table.columns as string[] : [];
+        const rows = Array.isArray(table.rows) ? table.rows as unknown[][] : [];
+        if (!columns.length && !rows.length) return null;
+        return (
+          <div key={i}>
+            {title && (
+              <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider mb-1">
+                📝 {title}
+              </p>
+            )}
+            <PivotTable headers={columns} rows={rows} />
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ── AI Procedure Renderers ────────────────────────────────────────────────
+
+function renderAIAnalyze(c: Record<string, unknown>): ReactNode {
+  const insight = c.insight as Record<string, unknown> | undefined;
+  const plan = c.plan as Record<string, unknown> | undefined;
+  const charts = c.charts;
+  const tables = c.tables;
+
+  return (
+    <div className="space-y-4">
+      {!!plan?.description && (
+        <div className="text-xs text-gray-500 flex items-center gap-1.5">
+          <span>🔬</span> Method: <strong>{String(plan.method)}</strong> — {String(plan.description)}
+        </div>
+      )}
+      {insight && renderAIInsightCard(insight)}
+      {renderAICharts(charts)}
+      {renderAITables(tables)}
+      {Array.isArray(plan?.warnings) && (plan.warnings as string[]).length > 0 && (
+        <div className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded p-2">
+          ⚠️ {(plan.warnings as string[]).join("; ")}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function renderAIAutoAnalysis(c: Record<string, unknown>): ReactNode {
+  const analyses = Array.isArray(c.analyses) ? c.analyses as Record<string, unknown>[] : [];
+  return (
+    <div className="space-y-4">
+      <div className="text-xs text-gray-500">
+        {analyses.length} analyses completed
+      </div>
+      {analyses.map((item, i) => {
+        const insight = item.insight as Record<string, unknown> | undefined;
+        const hasError = !!item.error;
+        return (
+          <div key={i} className="border border-gray-200 rounded-lg overflow-hidden">
+            <div className={`px-3 py-2 text-xs font-medium flex items-center gap-2 ${
+              hasError ? "bg-red-50 text-red-800" : "bg-gray-100 text-gray-700"
+            }`}>
+              <span>{hasError ? "❌" : "✅"}</span>
+              <span className="font-semibold">{String(item.method)}</span>
+              <span className="text-gray-400">—</span>
+              <span>{String(item.description)}</span>
+            </div>
+            <div className="p-3 space-y-3">
+              {hasError ? (
+                <p className="text-xs text-red-600">{String(item.error)}</p>
+              ) : (
+                <>
+                  {insight && renderAIInsightCard(insight)}
+                  {renderAICharts(item.charts)}
+                  {renderAITables(item.tables)}
+                </>
+              )}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function renderAIReport(c: Record<string, unknown>): ReactNode {
+  const report = c.report as Record<string, unknown> | undefined;
+  if (!report) return <p className="text-xs text-gray-400">No report data</p>;
+
+  const sections = Array.isArray(report.sections) ? report.sections as Record<string, string>[] : [];
+  return (
+    <div className="space-y-4">
+      {!!report.title && (
+        <h3 className="text-base font-bold text-gray-800 border-b border-gray-300 pb-2">
+          {String(report.title)}
+        </h3>
+      )}
+      {sections.map((section, i) => (
+        <div key={i}>
+          <h4 className="text-sm font-semibold text-blue-900 mb-1">{section.heading}</h4>
+          <p className="text-xs text-gray-700 leading-relaxed whitespace-pre-wrap">{section.content}</p>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // ── Main router ────────────────────────────────────────────────────────────────
 
 function renderContent(block: OutputBlockType): ReactNode {
@@ -816,6 +1108,11 @@ function renderContent(block: OutputBlockType): ReactNode {
   if (procedure === "logistic") return renderLogisticRegression(content);
   if (procedure === "efa") return renderEFA(content);
   if (procedure === "reliability") return renderReliability(content);
+
+  // AI procedures
+  if (procedure === "ai-analyze") return renderAIAnalyze(content);
+  if (procedure === "ai-auto-analyze") return renderAIAutoAnalysis(content);
+  if (procedure === "ai-report") return renderAIReport(content);
 
   // Fallback: use generic headers/rows pivot table if present
   if (Array.isArray(content.headers) && Array.isArray(content.rows)) {

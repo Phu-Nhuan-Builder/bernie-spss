@@ -5,7 +5,7 @@ import { useDatasetStore } from "@/stores/datasetStore";
 import { filesApi } from "@/lib/api";
 import { toast } from "sonner";
 import { SPSSWorkbench } from "@/components/SPSSWorkbench";
-import { Upload, BarChart2, FileText, Database } from "lucide-react";
+import { Upload, BarChart2, FileText, Database, Brain, Sparkles } from "lucide-react";
 
 export default function HomePage() {
   const { sessionId, setSession } = useDatasetStore();
@@ -60,10 +60,10 @@ export default function HomePage() {
       <div className="mb-8 text-center">
         <div className="flex items-center justify-center gap-3 mb-2">
           <BarChart2 className="w-10 h-10 text-spss-blue" />
-          <h1 className="text-3xl font-bold text-spss-blue tracking-tight">Bernie-SPSS</h1>
+          <h1 className="text-3xl font-bold text-spss-blue tracking-tight">SOTA StatWorks</h1>
         </div>
         <p className="text-gray-500 text-sm">
-          Web-based statistical software for Vietnamese economics students
+          AI-native statistical analysis platform — powered by natural language
         </p>
       </div>
 
@@ -104,6 +104,8 @@ export default function HomePage() {
         {/* Feature list */}
         <div className="mt-6 grid grid-cols-2 gap-3">
           {[
+            { icon: Brain, label: "🧠 AI-Powered Analysis" },
+            { icon: Sparkles, label: "One-Click Auto-Analyze" },
             { icon: FileText, label: "Frequencies & Descriptives" },
             { icon: BarChart2, label: "T-Tests & ANOVA" },
             { icon: BarChart2, label: "Correlation & Regression" },
@@ -118,7 +120,7 @@ export default function HomePage() {
       </div>
 
       <p className="mt-6 text-xs text-gray-400">
-        Bernie-SPSS v0.1.0 — Open source statistical analysis
+        SOTA StatWorks v1.0 — AI-native statistical analysis
       </p>
     </div>
   );

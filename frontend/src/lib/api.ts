@@ -237,3 +237,35 @@ export const healthApi = {
     return res.data;
   },
 };
+
+// ── AI Analysis ──────────────────────────────────────
+export const aiApi = {
+  analyze: async (sessionId: string, query: string) => {
+    const res = await apiClient.post("/ai/analyze", {
+      session_id: sessionId,
+      query,
+    });
+    return res.data;
+  },
+
+  analyzeAuto: async (sessionId: string) => {
+    const res = await apiClient.post("/ai/analyze-auto", {
+      session_id: sessionId,
+    });
+    return res.data;
+  },
+
+  generateReport: async (sessionId: string, analyses?: unknown[]) => {
+    const res = await apiClient.post("/ai/generate-report", {
+      session_id: sessionId,
+      analyses: analyses ?? null,
+    });
+    return res.data;
+  },
+
+  getSchema: async (sessionId: string) => {
+    const res = await apiClient.get(`/ai/schema/${sessionId}`);
+    return res.data;
+  },
+};
+
